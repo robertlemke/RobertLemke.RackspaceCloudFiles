@@ -1,0 +1,14 @@
+{
+	"name": "robertlemke\/rackspacecloudfilestarget",
+	"type": "typo3-flow-package",
+	"description": "TYPO3 Flow resource publishing target for Rackspace Cloudfiles",
+	"require": {
+		"typo3\/flow": "*",
+		"rackspace/php-cloudfiles": "1.7.*"
+	},
+	"autoload": {
+		"psr-0": {
+			"RobertLemke\\RackspaceCloudFilesTarget": "Classes"
+		}
+	}
+}
