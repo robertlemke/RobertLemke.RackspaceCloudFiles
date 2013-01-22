@@ -2,6 +2,22 @@
 	"name": "robertlemke/rackspacecloudfiles",
 	"type": "typo3-flow-package",
 	"description": "API for using Rackspace Cloudfiles programatically and as a resource publishing target.",
+	"authors": [
+		{
+			"name": "Robert Lemke",
+			"email": "rl@robertlemke.com",
+			"homepage": "http://robertlemke.com",
+			"role": "Developer"
+		}
+	],
+	"support": {
+		"issues": "https://github.com/robertlemke/rackspacecloudfiles/issues",
+		"irc": "irc://irc.freenode.org/typo3-flow"
+	},
+	"license": [
+		"MIT",
+		"LGPL-3.0+"
+	],
 	"require": {
 		"typo3/flow": "*"
 	},
