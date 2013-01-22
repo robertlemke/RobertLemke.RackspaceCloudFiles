@@ -1,0 +1,39 @@
+RobertLemke:
+
+  #
+  # Settings for the Rackspace CloudFiles package
+  #
+  RackspaceCloudFiles:
+
+    #
+    # The username of your account, as specified in the Rackspace API access details
+    #
+    # Example: johndoe
+    #
+    username: NULL
+
+    #
+    # The API key, as shown in the Rackspace API access details
+    #
+    # Example: ab5712b2f2553eb926f7b31cc37bc1d2
+    #
+    apiKey: NULL
+
+    #
+    # The Account Meta Data Key
+    #
+    # Set this to a random string which only you know. Make sure to keep it secret
+    # and to use the same key across all servers hosting your application.
+    #
+    # Example: 9486eA25ja90767l243f0aYa93627837e9aX
+    #
+    metaDataKey: NULL
+
+    #
+    # The URI used for authenticating with the CloudFiles service
+    #
+    # For the US servers: https://auth.api.rackspacecloud.com
+    # For the UK servers: https://lon.auth.api.rackspacecloud.com
+    #
+    authenticationServiceUri: 'https://auth.api.rackspacecloud.com'
+
