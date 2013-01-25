@@ -237,17 +237,21 @@ class Service {
 	 *
 	 * @param string $containerName Name of the container
 	 * @param string $objectName Name of the content object
-	 * @param string $content The actual content to store
+	 * @param string|resource $content The actual content to store or a stream resource
+	 * @param array $additionalHeaders Additional headers to set, for example array('Content-Disposition' => 'attachment; filename=littlekitten.jpg', ...)
 	 * @return void
 	 * @api
 	 */
-	public function createObject($containerName, $objectName, $content) {
+	public function createObject($containerName, $objectName, $content, $additionalHeaders = array()) {
 		if ($this->authenticationToken === NULL) {
 			$this->authenticate();
 		}
 
 		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName)), 'PUT');
 		$request->setContent($content);
+		foreach ($additionalHeaders as $fieldName => $value) {
+			$request->setHeader($fieldName, $value);
+		}
 		$response = $this->sendRequest($request);
 
 		if ($response->getStatusCode() !== 201) {
