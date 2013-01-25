@@ -3,6 +3,5 @@ RobertLemke\RackspaceCloudFiles\Service:
     browserRequestEngine:
       object: 'TYPO3\Flow\Http\Client\CurlEngine'
 
-#TYPO3\Flow\Resource\Publishing\ResourcePublishingTargetInterface:
-# className: 'RobertLemke\RackspaceCloudFiles\PublishingTarget'
-
+TYPO3\Flow\Resource\Publishing\ResourcePublishingTargetInterface:
+  className: 'RobertLemke\RackspaceCloudFiles\PublishingTarget'

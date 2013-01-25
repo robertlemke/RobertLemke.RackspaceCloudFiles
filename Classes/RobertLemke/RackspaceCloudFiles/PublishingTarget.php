@@ -8,12 +8,14 @@ namespace RobertLemke\RackspaceCloudFiles;
 
 use TYPO3\Flow\Annotations as Flow;
 use TYPO3\Flow\Resource\Publishing\AbstractResourcePublishingTarget;
+use TYPO3\Flow\Resource\Resource;
 use TYPO3\Flow\Utility\Files;
 
 /**
  * Publishing target for Rackspace CloudFiles
  *
- * @Flow\Scope("singleton")
+ * NOTE: In its current state this publishing target does not publish static
+ *       resources and defers that task to the FileSystemPublishingTarget
  */
 class PublishingTarget extends AbstractResourcePublishingTarget {
 
@@ -24,6 +26,37 @@ class PublishingTarget extends AbstractResourcePublishingTarget {
 	protected $cloudFilesService;
 
 	/**
+	 * This is just a preliminary solution: once publishStaticResources() etc. is
+	 * implemented, the FileSystemPublishingTarget should not be used anymore and
+	 * it should be modified to be prototype instead of singleton.
+	 *
+	 * @Flow\Inject
+	 * @var \TYPO3\Flow\Resource\Publishing\FileSystemPublishingTarget
+	 */
+	protected $fileSystemPublishingTarget;
+
+	/**
+	 * @Flow\Inject
+	 * @var \TYPO3\Flow\Persistence\PersistenceManagerInterface
+	 */
+	protected $persistenceManager;
+
+	/**
+	 * Name of the CloudFiles container where static resource will be stored.
+	 *
+	 * @var string
+	 */
+	protected $staticResourcesContainerName = 'typo3-flow-static-resources';
+
+	/**
+	 * Name of the CloudFiles container where persistent resource will be stored.
+	 * Note that this container should be non-public!
+	 *
+	 * @var string
+	 */
+	protected $persistentResourcesContainerName = 'typo3-flow-persistent-resources';
+
+	/**
 	 * Recursively publishes static resources located in the specified directory.
 	 * These resources are typically public package resources provided by the active packages.
 	 *
@@ -32,21 +65,44 @@ class PublishingTarget extends AbstractResourcePublishingTarget {
 	 * @return boolean TRUE if publication succeeded or FALSE if the resources could not be published
 	 */
 	public function publishStaticResources($sourcePath, $relativeTargetPath) {
+		return $this->fileSystemPublishingTarget->publishStaticResources($sourcePath, $relativeTargetPath);
+
+			// TODO: Finish implementation
 		if (!is_dir($sourcePath)) {
 			return FALSE;
 		}
 		$sourcePath = rtrim(Files::getUnixStylePath($this->realpath($sourcePath)), '/');
-		$container = $this->cloudFilesService->getContainer('gurumanage-resources');
+		$container = $this->cloudFilesService->getContainer($this->staticResourcesContainerName);
 
 		foreach (Files::readDirectoryRecursively($sourcePath) as $sourcePathAndFilename) {
 			if (substr(strtolower($sourcePathAndFilename), -4, 4) === '.php') {
 				continue;
 			}
 			$targetPathAndFilename = str_replace($sourcePath, '', $sourcePathAndFilename);
-			$container->createObject($targetPathAndFilename, 'file://' . $sourcePathAndFilename);
+			$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode(basename($sourcePathAndFilename)));
+			$container->createObject($targetPathAndFilename, 'file://' . $sourcePathAndFilename, $headers);
 		}
-
 		return TRUE;
+	}
+
+	/**
+	 * Imports a persistent resource from the specified source
+	 *
+	 * TODO: Also support stream resources as source
+	 *
+	 * @param string $source The URI of the source
+	 * @param string $originalFilename The original filename, for example "Butterfly.jpg"
+	 * @param integer $size The size of the upload - if it is not known, this parameter can be omitted
+	 * @return \TYPO3\Flow\Resource\Resource The generated Resource object
+	 */
+	public function importPersistentResource($source, $originalFilename, $size = NULL) {
+		$hash = sha1_file($source);
+		$resource = $this->createResourceFromHashAndFilename($hash, $originalFilename);
+
+		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($originalFilename));
+		$this->cloudFilesService->createObject($this->persistentResourcesContainerName, $hash, fopen($source, 'rb'), $headers);
+
+		return $resource;
 	}
 
 	/**
@@ -80,6 +136,7 @@ class PublishingTarget extends AbstractResourcePublishingTarget {
 	 * @return string The resources publishing path
 	 */
 	public function getResourcesPublishingPath() {
+		return $this->fileSystemPublishingTarget->getResourcesPublishingPath();
 	}
 
 	/**
@@ -88,6 +145,7 @@ class PublishingTarget extends AbstractResourcePublishingTarget {
 	 * @return string The base URI pointing to web accessible static resources
 	 */
 	public function getStaticResourcesWebBaseUri() {
+		return $this->fileSystemPublishingTarget->getStaticResourcesWebBaseUri();
 	}
 
 	/**
@@ -97,6 +155,7 @@ class PublishingTarget extends AbstractResourcePublishingTarget {
 	 * @return mixed Either the web URI of the published resource or FALSE if the resource source file doesn't exist or the resource could not be published for other reasons
 	 */
 	public function getPersistentResourceWebUri(\TYPO3\Flow\Resource\Resource $resource) {
+		return $this->cloudFilesService->getTemporaryUri($this->persistentResourcesContainerName, $resource->getResourcePointer()->getHash());
 	}
 
 	/**
@@ -109,6 +168,47 @@ class PublishingTarget extends AbstractResourcePublishingTarget {
 	protected function realpath($path) {
 		return realpath($path);
 	}
+
+	/**
+	 * Creates a resource object from a given hash and filename. The according
+	 * resource pointer is fetched automatically.
+	 *
+	 * @param string $resourceHash The SHA1 hash of the content of the resource
+	 * @param string $originalFilename The original filename, for example "foo.jpg"
+	 * @return \TYPO3\Flow\Resource\Resource The created resource
+	 * @api
+	 * FIXME Put into abstract resource storage
+	 */
+	protected function createResourceFromHashAndFilename($resourceHash, $originalFilename) {
+		$resource = new Resource();
+		$resource->setFilename($originalFilename);
+
+		$resourcePointer = $this->getResourcePointerForHash($resourceHash);
+		$resource->setResourcePointer($resourcePointer);
+
+		return $resource;
+	}
+
+	/**
+	 * Helper function which creates or fetches a resource pointer object for a given hash.
+	 *
+	 * If a ResourcePointer with the given hash exists, this one is used. Else, a new one
+	 * is created. This is a workaround for missing ValueObject support in Doctrine.
+	 *
+	 * @param string $hash
+	 * @return \TYPO3\Flow\Resource\ResourcePointer
+	 * FIXME Put into abstract resource storage
+	 */
+	protected function getResourcePointerForHash($hash) {
+		$resourcePointer = $this->persistenceManager->getObjectByIdentifier($hash, 'TYPO3\Flow\Resource\ResourcePointer');
+		if (!$resourcePointer) {
+			$resourcePointer = new \TYPO3\Flow\Resource\ResourcePointer($hash);
+			$this->persistenceManager->add($resourcePointer);
+		}
+
+		return $resourcePointer;
+	}
+
 
 }
 
