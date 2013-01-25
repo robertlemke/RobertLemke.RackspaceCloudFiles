@@ -58,6 +58,16 @@ class Container {
 	public function createObject($name, $content) {
 		return $this->service->createObject($this->name, $name, $content);
 	}
+
+	/**
+	 * Removes all objects from this container
+	 *
+	 * @return void
+	 * @api
+	 */
+	public function flush() {
+		return $this->service->flushContainer($this->name);
+	}
 }
 
 ?>

@@ -66,6 +66,26 @@ class RackspaceFilesCommandController extends CommandController {
 		}
 	}
 
+
+	/**
+	 * Removes all objects from a container
+	 *
+	 * This command deletes all objects (files) of the given container.
+	 *
+	 * @param string $container Name of the container
+	 * @return void
+	 */
+	public function flushContainerCommand($container) {
+		try {
+			$container = $this->cloudFilesService->getContainer($container);
+			$container->flush();
+		} catch(Exception $e) {
+			$this->outputLine($e->getMessage());
+			$this->quit(1);
+		}
+		$this->outputLine('Successfully flushed container %s.', array($container->getName()));
+	}
+
 	/**
 	 * Upload a file to a container
 	 *

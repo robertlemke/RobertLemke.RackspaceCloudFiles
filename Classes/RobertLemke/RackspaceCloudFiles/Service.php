@@ -193,6 +193,46 @@ class Service {
 	}
 
 	/**
+	 * Removes all objects from the specified container
+	 *
+	 * @param string $containerName Name of the container
+	 * @return void
+	 * @api
+	 */
+	public function flushContainer($containerName) {
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
+		}
+
+		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '?format=json'));
+		$response = $this->sendRequest($request);
+
+		if ($response->getStatusCode() !== 200) {
+			$message = sprintf('Flushing container "%s" failed: %s', $containerName, $response->getStatus());
+			$this->systemLogger->log($message, LOG_ERR);
+			throw new Exception($message);
+		}
+
+		$this->systemLogger->log(sprintf('Flushing container "%s" ...', $containerName), LOG_DEBUG);
+
+		$counter = 0;
+		foreach (json_decode($response->getContent()) as $objectName) {
+			$counter ++;
+
+			$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName->name)), 'DELETE');
+			$response = $this->sendRequest($request);
+			if ($response->getStatusCode() !== 204) {
+				$message = sprintf('Flushing container "%s" failed. Could not delete object "%s": %s', $containerName, $objectName, $response->getStatus());
+				$this->systemLogger->log($message, LOG_ERR);
+				throw new Exception($message);
+			}
+			$this->systemLogger->log(sprintf('   Deleted "%s"', $objectName->name, $response->getStatus()), LOG_DEBUG);
+		}
+
+		$this->systemLogger->log(sprintf('Flushed container "%s" which contained %s object(s).', $containerName, $counter), LOG_DEBUG);
+	}
+
+	/**
 	 * Creates a new (content) object in the specified container
 	 *
 	 * @param string $containerName Name of the container
