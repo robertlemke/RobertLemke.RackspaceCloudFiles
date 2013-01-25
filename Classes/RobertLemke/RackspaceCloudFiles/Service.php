@@ -130,6 +130,8 @@ class Service {
 		$this->authenticationToken = $response->getHeader('X-Auth-Token');
 		$this->storageToken = $response->getHeader('X-Storage-Token');
 		$this->storageUri = new Uri($response->getHeader('X-Storage-Url'));
+
+		$this->setMetaDataKey();
 	}
 
 	/**
@@ -276,10 +278,9 @@ class Service {
 	 * @api
 	 */
 	public function getTemporaryUri($containerName, $objectName, $ttl = 60) {
-		if (!$this->metaDataKeySet) {
-			$this->setMetaDataKey();
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
 		}
-
 		$expirationTime = time() + $ttl;
 		$objectUri = new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName));
 		$objectPath = $objectUri->getPath();
@@ -309,10 +310,6 @@ class Service {
 	 * @return void
 	 */
 	protected function setMetaDataKey() {
-		if ($this->authenticationToken === NULL) {
-			$this->authenticate();
-		}
-
 		$request = Request::create($this->storageUri, 'POST');
 		$request->setHeader('X-Account-Meta-Temp-Url-Key', $this->metaDataKey);
 		$response = $this->sendRequest($request);
