@@ -5,7 +5,7 @@ NOTE: THIS IS STILL WORK IN PROGRESS
 
 This package provides an API to the Rackspace CloudFiles REST service. Communication is handled through Flow's virtual browser by using the CurlEngine.
 
-Additionally, this package introduces Rackspace CloudFiles as a new resource publishing target. Through this mechanism it is possible to publish static and persistent resources to the cloud and the Content Delivery Network.
+Additionally, this package introduces Rackspace CloudFiles as a new resource storage and publishing target. Through this mechanism it is possible to publish static and persistent resources to the cloud and the Content Delivery Network.
 
 Finally, a set of commands is available at the command line to check connection, upload files etc.
 

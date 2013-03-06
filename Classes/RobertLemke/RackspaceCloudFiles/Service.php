@@ -51,6 +51,11 @@ class Service {
 	protected $authenticationServiceUri;
 
 	/**
+	 * @var \TYPO3\Flow\Http\Uri
+	 */
+	protected $cdnManagementUri;
+
+	/**
 	 * @var string
 	 */
 	protected $authenticationToken;
@@ -83,6 +88,13 @@ class Service {
 	 * @var array
 	 */
 	protected $containers = array();
+
+	/**
+	 * Base URIs of the Content Delivery Network for each container
+	 *
+	 * @var array
+	 */
+	protected $cdnUris = array();
 
 	/**
 	 * @param array $settings
@@ -130,6 +142,7 @@ class Service {
 		$this->authenticationToken = $response->getHeader('X-Auth-Token');
 		$this->storageToken = $response->getHeader('X-Storage-Token');
 		$this->storageUri = new Uri($response->getHeader('X-Storage-Url'));
+		$this->cdnManagementUri = new Uri($response->getHeader('X-CDN-Management-Url'));
 
 		$this->setMetaDataKey();
 	}
@@ -137,7 +150,7 @@ class Service {
 	/**
 	 * Returns an array of container objects
 	 *
-	 * @return array
+	 * @return array<\RobertLemke\RackspaceCloudFiles\Container>
 	 * @api
 	 */
 	public function getContainers() {
@@ -186,12 +199,46 @@ class Service {
 		if ($response->getStatusCode() !== 204) {
 			$message = sprintf('Getting container "%s" from account "%s" failed: %s', $name, $this->username, $response->getStatus());
 			$this->systemLogger->log($message, LOG_ERR);
+			throw new Exception($message, 1362516313);
 		}
 
 		$this->systemLogger->log(sprintf('Retrieved container "%s"', $name), LOG_DEBUG);
 
 		$this->containers[$name] = new Container($name, $this->storageUri);
 		return $this->containers[$name];
+	}
+
+	/**
+	 * Enables mirroring into the Content Delivery Network for the specified container
+	 *
+	 * @param string $containerName Name of the container to make public
+	 * @param boolean $state On or off (TRUE or FALSE)
+	 * @param integer $ttl Time to live (seconds) for CDN stored assets – minimum: 900
+	 * @return void
+	 * @api
+	 */
+	public function setContentDeliveryNetwork($containerName, $state, $ttl = 900) {
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
+		}
+
+		$request = Request::create(new Uri($this->cdnManagementUri . '/' . urlencode($containerName) . '?format=json'), 'PUT');
+		$request->setHeader('X-CDN-Enabled', ($state ? 'True' : 'False'));
+		$request->setHeader('X-TTL', $ttl);
+		$response = $this->sendRequest($request);
+
+		if ($response->getStatusCode() !== 201 && $response->getStatusCode() !== 202) {
+			$message = sprintf('Setting the CDN flag of container "%s" failed: %s', $containerName, $response->getStatus());
+			$this->systemLogger->log($message, LOG_ERR);
+			throw new Exception($message);
+		}
+
+		$this->cdnUris[$containerName] = array(
+			'http' => $response->getHeader('X-Cdn-Uri'),
+			'https' => $response->getHeader('X-Cdn-Ssl-Uri'),
+			'ios' => $response->getHeader('X-Cdn-Ios-Uri'),
+			'streaming' => $response->getHeader('X-Cdn-Streaming-Uri')
+		);
 	}
 
 	/**
@@ -286,8 +333,30 @@ class Service {
 		$objectPath = $objectUri->getPath();
 		$hmacBody = "GET\n$expirationTime\n$objectPath";
 		$hmacSignature = hash_hmac('sha1', $hmacBody, $this->metaDataKey);
-
 		return new Uri($objectUri . '?temp_url_sig=' . $hmacSignature . '&temp_url_expires=' . $expirationTime);
+	}
+
+	/**
+	 * Generates and returns a public CDN URI for the given object
+	 *
+	 * Note that this method does not check if the specified container or object
+	 * exists. If the this method has been called before, no further HTTP request
+	 * needs to / will be sent in order to render the URI.
+	 *
+	 * @param string $containerName Name of the container
+	 * @param string $objectName Name of the content object
+	 * @param string $scheme Either "http", "https", "ios" or "streaming"
+	 * @return \TYPO3\Flow\Http\Uri
+	 * @api
+	 */
+	public function getPublicUri($containerName, $objectName, $scheme = 'http') {
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
+		}
+		if (!isset($this->cdnUris[$containerName])) {
+			$this->setContentDeliveryNetwork($containerName, TRUE);
+		}
+		return new Uri($this->cdnUris[$containerName][$scheme] . '/' . urlencode($objectName));
 	}
 
 	/**

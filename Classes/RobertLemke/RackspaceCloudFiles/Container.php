@@ -48,6 +48,17 @@ class Container {
 	}
 
 	/**
+	 * Enables or disables CDN for this container
+	 *
+	 * @param boolean $state On or off (TRUE or FALSE)
+	 * @param integer $ttl Time to live (seconds) for CDN stored assets – minimum: 900
+	 * @return void
+	 */
+	public function setContentDeliveryNetwork($state, $ttl) {
+		$this->service->setContentDeliveryNetwork($this->name, $state, $ttl);
+	}
+
+	/**
 	 * Creates a new (content) object in this container
 	 *
 	 * @param string $name Name of the content object (will be urlencoded)
@@ -56,7 +67,7 @@ class Container {
 	 * @api
 	 */
 	public function createObject($name, $content) {
-		return $this->service->createObject($this->name, $name, $content);
+		$this->service->createObject($this->name, $name, $content);
 	}
 
 	/**
@@ -66,7 +77,7 @@ class Container {
 	 * @api
 	 */
 	public function flush() {
-		return $this->service->flushContainer($this->name);
+		$this->service->flushContainer($this->name);
 	}
 }
 

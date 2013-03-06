@@ -87,6 +87,28 @@ class RackspaceFilesCommandController extends CommandController {
 	}
 
 	/**
+	 * Sets CDN for a container
+	 *
+	 * This command enables or disables the usage of the Content Delivery Network for
+	 * the specified container.
+	 *
+	 * @param string $container Name of the container
+	 * @param boolean $state State of CDN - either true or false
+	 * @param integer $ttl The time to live in seconds, minimum: 900
+	 * @return void
+	 */
+	public function containerCdnCommand($container, $state, $ttl = 900) {
+		try {
+			$container = $this->cloudFilesService->getContainer($container);
+			$container->setContentDeliveryNetwork($state, $ttl);
+		} catch(Exception $e) {
+			$this->outputLine($e->getMessage());
+			$this->quit(1);
+		}
+		$this->outputLine('Successfully %s CDN for container %s.', array(($state ? 'enabled' : 'disabled'), $container->getName()));
+	}
+
+	/**
 	 * Upload a file to a container
 	 *
 	 * This command uploads the file specified by <b>file</b> to the container
@@ -134,7 +156,6 @@ class RackspaceFilesCommandController extends CommandController {
 		}
 
 		$this->outputLine((string)$uri);
-
 	}
 }
 
