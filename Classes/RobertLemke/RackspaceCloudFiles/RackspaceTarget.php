@@ -17,7 +17,7 @@ use TYPO3\Flow\Utility\Files;
 /**
  * A resource publishing target based on Rackspace Cloudfiles
  */
-class Target implements TargetInterface {
+class RackspaceTarget implements TargetInterface {
 
 	/**
 	 * Name which identifies this resource target

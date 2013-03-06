@@ -15,7 +15,7 @@ use TYPO3\Flow\Utility\Files;
 /**
  * A resource storage based on Rackspace Cloudfiles
  */
-class Storage implements StorageInterface {
+class RackspaceStorage implements StorageInterface {
 
 	/**
 	 * Name which identifies this resource storage
@@ -36,6 +36,12 @@ class Storage implements StorageInterface {
 	 * @var \RobertLemke\RackspaceCloudFiles\Service
 	 */
 	protected $cloudFilesService;
+
+	/**
+	 * @Flow\Inject
+	 * @var \TYPO3\Flow\Utility\Environment
+	 */
+	protected $environment;
 
 	/**
 	 * Constructor
@@ -73,6 +79,36 @@ class Storage implements StorageInterface {
 	 */
 	public function getContainerName() {
 		return $this->containerName;
+	}
+
+	/**
+	 * Imports a resource (file) as specified in the URI as a persistent resource.
+	 *
+	 * On a successful import this method returns a Resource object representing
+	 * the newly imported persistent resource.
+	 *
+	 * @param string $uri The URI pointing to the resource to import (can also be a local path and filename)
+	 * @return mixed A resource object representing the imported resource or an error message if an error occurred
+	 */
+	public function importResource($uri) {
+		$pathInfo = pathinfo($uri);
+		$originalFilename = $pathInfo['basename'];
+		$temporaryTargetPathAndFilename = $this->environment->getPathToTemporaryDirectory() . uniqid('TYPO3_Flow_ResourceImport_');
+
+		if (copy($uri, $temporaryTargetPathAndFilename) === FALSE) {
+			return sprintf('Could not copy thre file from "%s" to temporary file "%s".', $uri, $temporaryTargetPathAndFilename);
+		}
+
+		$hash = sha1_file($temporaryTargetPathAndFilename);
+
+		$resource = new Resource();
+		$resource->setFilename($originalFilename);
+		$resource->setHash($hash);
+
+		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($originalFilename));
+		$this->cloudFilesService->createObject($this->containerName, $hash, fopen($temporaryTargetPathAndFilename, 'rb'), $headers);
+
+		return $resource;
 	}
 
 	/**
