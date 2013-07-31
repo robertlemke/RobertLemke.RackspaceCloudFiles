@@ -36,4 +36,3 @@ RobertLemke:
     # For the UK servers: https://lon.auth.api.rackspacecloud.com
     #
     authenticationServiceUri: 'https://auth.api.rackspacecloud.com'
-

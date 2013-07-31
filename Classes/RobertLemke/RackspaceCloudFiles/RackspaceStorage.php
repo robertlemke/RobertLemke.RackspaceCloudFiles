@@ -8,14 +8,14 @@ namespace RobertLemke\RackspaceCloudFiles;
 
 use TYPO3\Flow\Annotations as Flow;
 use TYPO3\Flow\Resource\Resource;
-use TYPO3\Flow\Resource\Exception;
-use TYPO3\Flow\Resource\Storage\StorageInterface;
+use TYPO3\Flow\Resource\Storage\Exception as StorageException;
+use TYPO3\Flow\Resource\Storage\WritableStorageInterface;
 use TYPO3\Flow\Utility\Files;
 
 /**
  * A resource storage based on Rackspace Cloudfiles
  */
-class RackspaceStorage implements StorageInterface {
+class RackspaceStorage implements WritableStorageInterface {
 
 	/**
 	 * Name which identifies this resource storage
@@ -48,6 +48,7 @@ class RackspaceStorage implements StorageInterface {
 	 *
 	 * @param string $name Name of this storage instance, according to the resource settings
 	 * @param array $options Options for this storage
+	 * @throws Exception
 	 */
 	public function __construct($name, array $options = array()) {
 		$this->name = $name;
@@ -58,7 +59,9 @@ class RackspaceStorage implements StorageInterface {
 					$this->containerName = $value;
 				break;
 				default:
-					throw new Exception(sprintf('An unknown option "%s" was specified in the configuration of the "%s" resource RackspaceStorage. Please check your settings.', $key, $name), 1362500689);
+					if ($value !== NULL) {
+						throw new Exception(sprintf('An unknown option "%s" was specified in the configuration of the "%s" resource RackspaceStorage. Please check your settings.', $key, $name), 1362500689);
+					}
 			}
 		}
 	}
@@ -82,31 +85,38 @@ class RackspaceStorage implements StorageInterface {
 	}
 
 	/**
-	 * Imports a resource (file) as specified in the URI as a persistent resource.
+	 * Imports a resource (file) from the given URI or PHP resource stream into this storage.
 	 *
-	 * On a successful import this method returns a Resource object representing
-	 * the newly imported persistent resource.
+	 * On a successful import this method returns a Resource object representing the newly
+	 * imported persistent resource.
 	 *
-	 * @param string $uri The URI pointing to the resource to import (can also be a local path and filename)
-	 * @return mixed A resource object representing the imported resource or an error message if an error occurred
+	 * @param string | resource $source The URI (or local path and filename) or the PHP resource stream to import the resource from
+	 * @param string $collectionName Name of the collection the new Resource belongs to
+	 * @return Resource A resource object representing the imported resource
+	 * @throws \TYPO3\Flow\Resource\Storage\Exception
 	 */
-	public function importResource($uri) {
-		$pathInfo = pathinfo($uri);
-		$originalFilename = $pathInfo['basename'];
-		$temporaryTargetPathAndFilename = $this->environment->getPathToTemporaryDirectory() . uniqid('TYPO3_Flow_ResourceImport_');
-
-		if (copy($uri, $temporaryTargetPathAndFilename) === FALSE) {
-			return sprintf('Could not copy thre file from "%s" to temporary file "%s".', $uri, $temporaryTargetPathAndFilename);
+	public function importResource($source, $collectionName) {
+		if (is_resource($source)) {
+			throw new StorageException('Could not import resource because stream resources are not yet implemented for RackspaceStorage.', 1375266667);
 		}
 
-		$hash = sha1_file($temporaryTargetPathAndFilename);
+		$pathInfo = pathinfo($source);
+		$originalFilename = $pathInfo['basename'];
+		$temporaryTargetPathAndFilename = $this->environment->getPathToTemporaryDirectory() . uniqid('RobertLemke_RackspaceCloudFiles_');
+
+		if (copy($source, $temporaryTargetPathAndFilename) === FALSE) {
+			throw new StorageException(sprintf('Could not copy the file from "%s" to temporary file "%s".', $source, $temporaryTargetPathAndFilename), 1375266771);
+		}
+
+		$sha1Hash = sha1_file($temporaryTargetPathAndFilename);
 
 		$resource = new Resource();
 		$resource->setFilename($originalFilename);
-		$resource->setHash($hash);
+		$resource->setCollectionName($collectionName);
+		$resource->setSha1($sha1Hash);
 
 		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($originalFilename));
-		$this->cloudFilesService->createObject($this->containerName, $hash, fopen($temporaryTargetPathAndFilename, 'rb'), $headers);
+		$this->cloudFilesService->createObject($this->containerName, $sha1Hash, fopen($temporaryTargetPathAndFilename, 'rb'), $headers);
 
 		return $resource;
 	}
@@ -119,30 +129,45 @@ class RackspaceStorage implements StorageInterface {
 	 * the newly imported persistent resource.
 	 *
 	 * @param array $uploadInfo An array detailing the resource to import (expected keys: name, tmp_name)
-	 * @return mixed A resource object representing the imported resource or an error message if an error occurred
+	 * @param string $collectionName Name of the collection this uploaded resource should be part of
+	 * @return string A resource object representing the imported resource
+	 * @throws Exception
 	 */
-	public function importUploadedResource(array $uploadInfo) {
+	public function importUploadedResource(array $uploadInfo, $collectionName) {
 		$pathInfo = pathinfo($uploadInfo['name']);
-		$sourcePathAndFilename = $uploadInfo['tmp_name'];
 		$originalFilename = $pathInfo['basename'];
+		$sourcePathAndFilename = $uploadInfo['tmp_name'];
 
 		if (!file_exists($sourcePathAndFilename)) {
-			return 'The temporary file of the file upload does not exist (anymore).';
-		}
-		if (!is_uploaded_file($sourcePathAndFilename)) {
-			return 'The file specified in the upload info array for being imported as a resource has not been uploaded via HTTP POST.';
+			throw new Exception(sprintf('The temporary file "%s" of the file upload does not exist (anymore).', $sourcePathAndFilename), 1375267007);
 		}
 
-		$hash = sha1_file($sourcePathAndFilename);
+		$newSourcePathAndFilename = $this->environment->getPathToTemporaryDirectory() . 'RobertLemke_RackspaceCloudFiles_' . uniqid() . '.tmp';
+		if (move_uploaded_file($sourcePathAndFilename, $newSourcePathAndFilename) === FALSE) {
+			throw new Exception(sprintf('The uploaded file "%s" could not be moved to the temporary location "%s".', $sourcePathAndFilename, $newSourcePathAndFilename), 1375267045);
+		}
+		$sha1Hash = sha1_file($newSourcePathAndFilename);
 
 		$resource = new Resource();
 		$resource->setFilename($originalFilename);
-		$resource->setHash($hash);
+		$resource->setCollectionName($collectionName);
+		$resource->setSha1($sha1Hash);
 
 		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($originalFilename));
-		$this->cloudFilesService->createObject($this->containerName, $hash, fopen($sourcePathAndFilename, 'rb'), $headers);
+		$this->cloudFilesService->createObject($this->containerName, $sha1Hash, fopen($newSourcePathAndFilename, 'rb'), $headers);
 
 		return $resource;
+	}
+
+	/**
+	 * Deletes the storage data related to the given Resource object
+	 *
+	 * @param \TYPO3\Flow\Resource\Resource $resource The Resource to delete the storage data of
+	 * @return boolean TRUE if removal was successful
+	 */
+	public function deleteResource(Resource $resource) {
+		$this->cloudFilesService->deleteObject($this->containerName, $resource->getSha1());
+		return TRUE;
 	}
 
 	/**
@@ -153,7 +178,7 @@ class RackspaceStorage implements StorageInterface {
 	 * @return string A temporary URI leading to the resource file
 	 */
 	public function getPrivateUriByResource(Resource $resource) {
-		return $this->cloudFilesService->getTemporaryUri($this->containerName, $resource->getHash());
+		return $this->cloudFilesService->getTemporaryUri($this->containerName, $resource->getSha1());
 	}
 
 	/**

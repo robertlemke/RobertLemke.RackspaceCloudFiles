@@ -133,7 +133,28 @@ class RackspaceFilesCommandController extends CommandController {
 		}
 
 		$container->createObject($file, fopen('file://' . realpath($file), 'rb'));
-		$this->outputLine('Sucessfully uploaded the file.');
+		$this->outputLine('Sucessfully uploaded %s to %s.', array($file, $container->getName()));
+	}
+
+	/**
+	 * Delete a file from the container
+	 *
+	 * This command removes the a file specified by the given <b>object name</b> from
+	 * the specified container.
+	 *
+	 * @param string $container Name of the container the object is contained in
+	 * @param string $object Name of the object (file) to be deleted
+	 * @return void
+	 */
+	public function deleteCommand($container, $object) {
+		try {
+			$container = $this->cloudFilesService->getContainer($container);
+			$container->deleteObject($object);
+		} catch(Exception $e) {
+			$this->outputLine($e->getMessage());
+			$this->quit(1);
+		}
+		$this->outputLine('Successfully removed %s from container %s.', array($object, $container->getName()));
 	}
 
 	/**

@@ -2,3 +2,12 @@ RobertLemke\RackspaceCloudFiles\Service:
   properties:
     browserRequestEngine:
       object: 'TYPO3\Flow\Http\Client\CurlEngine'
+
+    authenticationCache:
+      object:
+        factoryObjectName: TYPO3\Flow\Cache\CacheManager
+        factoryMethodName: getCache
+        arguments:
+          1:
+            value: 'RobertLemke_RackspaceCloudFiles_Authentication'
+

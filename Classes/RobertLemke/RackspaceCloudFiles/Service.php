@@ -25,7 +25,7 @@ class Service {
 
 	/**
 	 * @Flow\Inject
-	 * @var \TYPO3\Flow\Http\Client\RequestEngineInterface
+	 * @var \TYPO3\Flow\Http\Client\CurlEngine
 	 */
 	protected $browserRequestEngine;
 
@@ -34,6 +34,12 @@ class Service {
 	 * @var \TYPO3\Flow\Log\SystemLoggerInterface
 	 */
 	protected $systemLogger;
+
+	/**
+	 * @Flow\Inject
+	 * @var \TYPO3\Flow\Cache\Frontend\StringFrontend
+	 */
+	protected $authenticationCache;
 
 	/**
 	 * @var string
@@ -113,6 +119,7 @@ class Service {
 	 * @return void
 	 */
 	public function initializeObject() {
+		$this->browserRequestEngine->setOption(CURLOPT_TIMEOUT, 120);
 		$this->browser->setRequestEngine($this->browserRequestEngine);
 	}
 
@@ -123,28 +130,45 @@ class Service {
 	 * service.
 	 *
 	 * @return void
+	 * @throws Exception
 	 * @api
 	 */
 	public function authenticate() {
-		$request = Request::create(new Uri($this->authenticationServiceUri));
-		$request->setHeader('X-Auth-User', $this->username);
-		$request->setHeader('X-Auth-Key', $this->apiKey);
+		$authenticationInfo = $this->authenticationCache->get('authenticationInfo');
+		if ($authenticationInfo !== FALSE) {
+			$this->systemLogger->log(sprintf('Authentication token still valid for account %s', $this->username), LOG_DEBUG);
+			$this->authenticationToken = $authenticationInfo['authenticationToken'];
+			$this->storageToken = $authenticationInfo['storageToken'];
+			$this->storageUri = $authenticationInfo['storageUri'];
+			$this->cdnManagementUri = $authenticationInfo['cdnManagementUri'];
+		} else {
+			$request = Request::create(new Uri($this->authenticationServiceUri));
+			$request->setHeader('X-Auth-User', $this->username);
+			$request->setHeader('X-Auth-Key', $this->apiKey);
 
-		$response = $this->browser->sendRequest($request);
+			$response = $this->browser->sendRequest($request);
 
-		if ($response->getStatusCode() !== 204) {
-			$message = sprintf('Authentication with account "%s" failed: %s', $this->username, $response->getStatus());
-			$this->systemLogger->log($message, LOG_ERR);
-			throw new Exception($message);
+			if ($response->getStatusCode() !== 204) {
+				$message = sprintf('Authentication with account "%s" failed: %s', $this->username, $response->getStatus());
+				$this->systemLogger->log($message, LOG_ERR);
+				throw new Exception($message);
+			}
+			$this->systemLogger->log(sprintf('Authentication successful with account %s', $this->username), LOG_DEBUG);
+
+			$this->authenticationToken = $response->getHeader('X-Auth-Token');
+			$this->storageToken = $response->getHeader('X-Storage-Token');
+			$this->storageUri = new Uri($response->getHeader('X-Storage-Url'));
+			$this->cdnManagementUri = new Uri($response->getHeader('X-CDN-Management-Url'));
+
+			$authenticationInfo = array();
+			$authenticationInfo['authenticationToken'] = $this->authenticationToken;
+			$authenticationInfo['storageToken'] = $this->storageToken;
+			$authenticationInfo['storageUri'] = $this->storageUri;
+			$authenticationInfo['cdnManagementUri'] = $this->cdnManagementUri;
+			$this->authenticationCache->set('authenticationInfo', $authenticationInfo, array(), 1380);
+
+			$this->setMetaDataKey();
 		}
-		$this->systemLogger->log(sprintf('Authentication successful with account %s', $this->username), LOG_DEBUG);
-
-		$this->authenticationToken = $response->getHeader('X-Auth-Token');
-		$this->storageToken = $response->getHeader('X-Storage-Token');
-		$this->storageUri = new Uri($response->getHeader('X-Storage-Url'));
-		$this->cdnManagementUri = new Uri($response->getHeader('X-CDN-Management-Url'));
-
-		$this->setMetaDataKey();
 	}
 
 	/**
@@ -246,6 +270,7 @@ class Service {
 	 *
 	 * @param string $containerName Name of the container
 	 * @return void
+	 * @throws Exception
 	 * @api
 	 */
 	public function flushContainer($containerName) {
@@ -265,17 +290,17 @@ class Service {
 		$this->systemLogger->log(sprintf('Flushing container "%s" ...', $containerName), LOG_DEBUG);
 
 		$counter = 0;
-		foreach (json_decode($response->getContent()) as $objectName) {
+		foreach (json_decode($response->getContent()) as $object) {
 			$counter ++;
 
-			$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName->name)), 'DELETE');
+			$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($object->name)), 'DELETE');
 			$response = $this->sendRequest($request);
 			if ($response->getStatusCode() !== 204) {
-				$message = sprintf('Flushing container "%s" failed. Could not delete object "%s": %s', $containerName, $objectName, $response->getStatus());
+				$message = sprintf('Flushing container "%s" failed. Could not delete object "%s": %s', $containerName, $object->name, $response->getStatus());
 				$this->systemLogger->log($message, LOG_ERR);
 				throw new Exception($message);
 			}
-			$this->systemLogger->log(sprintf('   Deleted "%s"', $objectName->name, $response->getStatus()), LOG_DEBUG);
+			$this->systemLogger->log(sprintf('   Deleted "%s"', $object->name, $response->getStatus()), LOG_DEBUG);
 		}
 
 		$this->systemLogger->log(sprintf('Flushed container "%s" which contained %s object(s).', $containerName, $counter), LOG_DEBUG);
@@ -289,6 +314,7 @@ class Service {
 	 * @param string|resource $content The actual content to store or a stream resource
 	 * @param array $additionalHeaders Additional headers to set, for example array('Content-Disposition' => 'attachment; filename=littlekitten.jpg', ...)
 	 * @return void
+	 * @throws Exception
 	 * @api
 	 */
 	public function createObject($containerName, $objectName, $content, $additionalHeaders = array()) {
@@ -309,6 +335,30 @@ class Service {
 			throw new Exception($message);
 		}
 		$this->systemLogger->log(sprintf('Created object "%s" in container "%s"', $objectName, $containerName), LOG_DEBUG);
+	}
+
+	/**
+	 * Deletes an existing (content) object in the specified container
+	 *
+	 * @param string $containerName Name of the container
+	 * @param string $objectName Name of the content object
+	 * @return void
+	 * @throws Exception
+	 * @api
+	 */
+	public function deleteObject($containerName, $objectName) {
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
+		}
+		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName)), 'DELETE');
+		$response = $this->sendRequest($request);
+
+		if ($response->getStatusCode() !== 204) {
+			$message = sprintf('Deleting object "%s" in container "%s" failed: %s', $objectName, $containerName, $response->getStatus());
+			$this->systemLogger->log($message, LOG_ERR);
+			throw new Exception($message);
+		}
+		$this->systemLogger->log(sprintf('Deleted object "%s" in container "%s"', $objectName, $containerName), LOG_DEBUG);
 	}
 
 	/**

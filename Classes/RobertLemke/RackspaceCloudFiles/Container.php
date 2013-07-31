@@ -71,6 +71,17 @@ class Container {
 	}
 
 	/**
+	 * Deletes a (content) object from this container
+	 *
+	 * @param string $name Name fo the content object (will be urlencoded)
+	 * @return void
+	 * @api
+	 */
+	public function deleteObject($name) {
+		$this->service->deleteObject($this->name, $name);
+	}
+
+	/**
 	 * Removes all objects from this container
 	 *
 	 * @return void
