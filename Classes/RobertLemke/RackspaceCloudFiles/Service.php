@@ -293,7 +293,7 @@ class Service {
 		foreach (json_decode($response->getContent()) as $object) {
 			$counter ++;
 
-			$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($object->name)), 'DELETE');
+			$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . $this->encodeObjectName($object->name)), 'DELETE');
 			$response = $this->sendRequest($request);
 			if ($response->getStatusCode() !== 204) {
 				$message = sprintf('Flushing container "%s" failed. Could not delete object "%s": %s', $containerName, $object->name, $response->getStatus());
@@ -322,7 +322,7 @@ class Service {
 			$this->authenticate();
 		}
 
-		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName)), 'PUT');
+		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . $this->encodeObjectName($objectName)), 'PUT');
 		$request->setContent($content);
 		foreach ($additionalHeaders as $fieldName => $value) {
 			$request->setHeader($fieldName, $value);
@@ -350,7 +350,7 @@ class Service {
 		if ($this->authenticationToken === NULL) {
 			$this->authenticate();
 		}
-		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName)), 'DELETE');
+		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . $this->encodeObjectName($objectName)), 'DELETE');
 		$response = $this->sendRequest($request);
 
 		if ($response->getStatusCode() !== 204) {
@@ -359,6 +359,38 @@ class Service {
 			throw new Exception($message);
 		}
 		$this->systemLogger->log(sprintf('Deleted object "%s" in container "%s"', $objectName, $containerName), LOG_DEBUG);
+	}
+
+	/**
+	 * Creates a new (content) object in the specified container
+	 *
+	 * @param string $sourceContainerName Name of the source container
+	 * @param string $sourceObjectName Name of the source content object
+	 * @param string $targetContainerName Name of the target container
+	 * @param string $targetObjectName Name of the target content object
+	 * @param array $additionalHeaders Additional headers to set for the target object, for example array('Content-Disposition' => 'attachment; filename=littlekitten.jpg', ...)
+	 * @throws Exception
+	 * @return void
+	 * @api
+	 */
+	public function copyObject($sourceContainerName, $sourceObjectName, $targetContainerName, $targetObjectName, $additionalHeaders = array()) {
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
+		}
+
+		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($sourceContainerName) . '/' . $this->encodeObjectName($sourceObjectName)), 'COPY');
+		$request->setHeader('Destination', '/' . urlencode($targetContainerName) . '/' . $this->encodeObjectName($targetObjectName));
+		foreach ($additionalHeaders as $fieldName => $value) {
+			$request->setHeader($fieldName, $value);
+		}
+		$response = $this->sendRequest($request);
+
+		if ($response->getStatusCode() !== 201) {
+			$message = sprintf('Copying object "%s" in container "%s" to container "%s" failed: %s', $sourceObjectName, $sourceContainerName, $targetContainerName, $response->getStatus());
+			$this->systemLogger->log($message, LOG_ERR);
+			throw new Exception($message);
+		}
+		$this->systemLogger->log(sprintf('Copied object "%s" from container "%s" to container "%s" as object "%s"', $sourceObjectName, $sourceContainerName, $targetContainerName, $targetObjectName), LOG_DEBUG);
 	}
 
 	/**
@@ -379,7 +411,7 @@ class Service {
 			$this->authenticate();
 		}
 		$expirationTime = time() + $ttl;
-		$objectUri = new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . urlencode($objectName));
+		$objectUri = new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . $this->encodeObjectName($objectName));
 		$objectPath = $objectUri->getPath();
 		$hmacBody = "GET\n$expirationTime\n$objectPath";
 		$hmacSignature = hash_hmac('sha1', $hmacBody, $this->metaDataKey);
@@ -406,7 +438,7 @@ class Service {
 		if (!isset($this->cdnUris[$containerName])) {
 			$this->setContentDeliveryNetwork($containerName, TRUE);
 		}
-		return new Uri($this->cdnUris[$containerName][$scheme] . '/' . urlencode($objectName));
+		return new Uri($this->cdnUris[$containerName][$scheme] . '/' . $this->encodeObjectName($objectName));
 	}
 
 	/**
@@ -438,6 +470,19 @@ class Service {
 			throw new Exception($message);
 		}
 		$this->systemLogger->log(sprintf('Successfully set the meta data key for account %s', $this->username), LOG_DEBUG);
+	}
+
+	/**
+	 * Will urlencode() the given object name, but keep foward slashes intact.
+	 *
+	 * @param string $objectName
+	 * @return string
+	 */
+	protected function encodeObjectName($objectName) {
+		$objectName = urlencode($objectName);
+		$objectName = str_replace('%2F', '/', $objectName);
+		$objectName = str_replace('%20', '+', $objectName);
+		return $objectName;
 	}
 
 }

@@ -9,6 +9,7 @@ namespace RobertLemke\RackspaceCloudFiles;
 use TYPO3\Flow\Annotations as Flow;
 use TYPO3\Flow\Resource\Resource;
 use TYPO3\Flow\Resource\Storage\Exception as StorageException;
+use TYPO3\Flow\Resource\Storage\Object;
 use TYPO3\Flow\Resource\Storage\WritableStorageInterface;
 use TYPO3\Flow\Utility\Files;
 
@@ -42,6 +43,12 @@ class RackspaceStorage implements WritableStorageInterface {
 	 * @var \TYPO3\Flow\Utility\Environment
 	 */
 	protected $environment;
+
+	/**
+	 * @Flow\Inject
+	 * @var \TYPO3\Flow\Resource\ResourceRepository
+	 */
+	protected $resourceRepository;
 
 	/**
 	 * Constructor
@@ -94,6 +101,7 @@ class RackspaceStorage implements WritableStorageInterface {
 	 * @param string $collectionName Name of the collection the new Resource belongs to
 	 * @return Resource A resource object representing the imported resource
 	 * @throws \TYPO3\Flow\Resource\Storage\Exception
+	 * TODO: Dont upload file again if it already exists
 	 */
 	public function importResource($source, $collectionName) {
 		if (is_resource($source)) {
@@ -190,6 +198,26 @@ class RackspaceStorage implements WritableStorageInterface {
 	 */
 	public function getPrivateUriByResourcePath($relativePath) {
 		return $this->cloudFilesService->getTemporaryUri($this->containerName, ltrim('/', $relativePath));
+	}
+
+	/**
+	 * Retrieve all Objects stored in this storage, filtered by the given collection name
+	 *
+	 * @param string $collectionName
+	 * @return array<\TYPO3\Flow\Resource\Storage\Object>
+	 * @api
+	 */
+	public function getObjectsByCollectionName($collectionName) {
+		$objects = array();
+		foreach ($this->resourceRepository->findByCollectionName($collectionName) as $resource) {
+			/** @var \TYPO3\Flow\Resource\Resource $resource */
+			$object = new Object();
+			$object->setFilename($resource->getFilename());
+			$object->setSha1($resource->getSha1());
+			$object->setDataUri($this->cloudFilesService->getTemporaryUri($this->containerName, $resource->getSha1()));
+			$objects[] = $object;
+		}
+		return $objects;
 	}
 
 }

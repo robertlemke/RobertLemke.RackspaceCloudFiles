@@ -8,9 +8,10 @@ namespace RobertLemke\RackspaceCloudFiles;
 
 use TYPO3\Flow\Annotations as Flow;
 use TYPO3\Flow\Resource\Collection;
+use TYPO3\Flow\Resource\CollectionInterface;
 use TYPO3\Flow\Resource\Exception;
 use TYPO3\Flow\Resource\Resource;
-use TYPO3\Flow\Resource\Storage\StorageInterface;
+use TYPO3\Flow\Resource\ResourceMetaDataInterface;
 use TYPO3\Flow\Resource\Target\TargetInterface;
 use TYPO3\Flow\Utility\Files;
 
@@ -84,7 +85,9 @@ class RackspaceTarget implements TargetInterface {
 					$this->cdn['https'] = rtrim($value['https'], '/') . '/';
 				break;
 				default:
-					throw new Exception(sprintf('An unknown option "%s" was specified in the configuration of the "%s" resource RackspaceTarget. Please check your settings.', $key, $name), 1362500688);
+					if ($value !== NULL) {
+						throw new Exception(sprintf('An unknown option "%s" was specified in the configuration of the "%s" resource RackspaceTarget. Please check your settings.', $key, $name), 1362500688);
+					}
 			}
 		}
 	}
@@ -103,14 +106,25 @@ class RackspaceTarget implements TargetInterface {
 	 *
 	 * @param \TYPO3\Flow\Resource\Collection $collection The collection to publish
 	 * @return void
+	 * @throws Exception
+	 * TODO: Dont upload file again if it already exists
 	 */
-	public function publish(Collection $collection) {
-		foreach ($collection->getDirectories() as $directoryStorageUri) {
-			list($storageName, $sourcePath) = explode('://', $directoryStorageUri);
-			if (!isset($this->storages[$storageName])) {
-				$this->storages[$storageName] = $this->resourceManager->getStorage($storageName);
+	public function publishCollection(Collection $collection) {
+		$storage = $collection->getStorage();
+		if ($storage instanceof RackspaceStorage) {
+			$storageContainerName = $storage->getContainerName();
+			if ($storageContainerName === $this->containerName) {
+				throw new Exception(sprintf('Could not publish collection %s because the source and target Rackspace Cloudfiles container is the same.', $collection->getName()), 1375348241);
 			}
-			$this->publishDirectory($this->storages[$storageName]->getPrivateUriByResourcePath($sourcePath), $sourcePath);
+			foreach ($collection->getObjects() as $object) {
+				/** @var \TYPO3\Flow\Resource\Storage\Object $object */
+				$this->cloudFilesService->copyObject($storageContainerName, $object->getSha1(), $this->containerName, $this->getRelativePublicationPathAndFilename($object));
+			}
+		} else {
+			foreach ($collection->getObjects() as $object) {
+				/** @var \TYPO3\Flow\Resource\Storage\Object $object */
+				$this->publishFile($object->getDataUri(), $this->getRelativePublicationPathAndFilename($object));
+			}
 		}
 	}
 
@@ -119,92 +133,92 @@ class RackspaceTarget implements TargetInterface {
 	 *
 	 * @param string $relativePathAndFilename Relative path and filename of the static resource
 	 * @return string The URI
-	 * TODO: ADJUST
 	 */
 	public function getPublicStaticResourceUri($relativePathAndFilename) {
-		return $this->baseUri . $relativePathAndFilename;
+		return $this->cloudFilesService->getPublicUri($this->containerName, $relativePathAndFilename);
 	}
 
 	/**
 	 * Publishes the given persistent resource from the given storage
 	 *
 	 * @param \TYPO3\Flow\Resource\Resource $resource The resource to publish
-	 * @param \TYPO3\Flow\Resource\Storage\StorageInterface $storage The storage the given resource is stored in
-	 * @return boolean
+	 * @param CollectionInterface $collection The collection the given resource belongs to
+	 * @return void
+	 * @throws Exception
+	 * TODO: Dont upload file again if it already exists
 	 */
-	public function publishResource(Resource $resource, StorageInterface $storage) {
-		if ($storage instanceof Storage && $storage->getContainerName() === $this->containerName) {
-			return TRUE;
+	public function publishResource(Resource $resource, CollectionInterface $collection) {
+		$storage = $collection->getStorage();
+		if ($storage instanceof RackspaceStorage) {
+			if ($storage->getContainerName() === $this->containerName) {
+				throw new Exception(sprintf('Could not publish resource with SHA1 hash %s of collection %s because the source and target Rackspace Cloudfiles container is the same.', $resource->getSha1(), $collection->getName()), 1375348223);
+			}
+			$this->cloudFilesService->copyObject($storage->getContainerName(), $resource->getSha1(), $this->containerName, $this->getRelativePublicationPathAndFilename($resource));
+		} else {
+			$sourcePathAndFilename = $storage->getPrivateUriByResource($resource);
+			if ($sourcePathAndFilename === FALSE) {
+				throw new Exception(sprintf('Could not publish resource with SHA1 hash %s of collection %s because there seems to be no corresponding data in the storage.', $resource->getSha1(), $collection->getName()), 1375342304);
+			}
+			$this->publishFile($sourcePathAndFilename, $this->getRelativePublicationPathAndFilename($resource));
 		}
-		$sourcePathAndFilename = $storage->getPrivateUriByResource($resource);
-		if ($sourcePathAndFilename === FALSE) {
-			return FALSE;
-		}
+	}
 
-		// TODO: IMPLEMENT
+	/**
+	 * Unpublishes the given persistent resource
+	 *
+	 * @param \TYPO3\Flow\Resource\Resource $resource The resource to unpublish
+	 * @return void
+	 */
+	public function unpublishResource(Resource $resource) {
+		try {
+			$this->cloudFilesService->deleteObject($this->containerName, $this->getRelativePublicationPathAndFilename($resource));
+		} catch (\Exception $e) {
+		}
 	}
 
 	/**
 	 * Returns the web accessible URI pointing to the specified persistent resource
 	 *
-	 * @param string $resource Resource object or the resource hash of the resource
+	 * @param \TYPO3\Flow\Resource\Resource $resource Resource object or the resource hash of the resource
 	 * @return string The URI
+	 * @throws Exception
 	 */
-	public function getPublicPersistentResourceUri($resource) {
-		if ($resource instanceof Resource) {
-			$hash = $resource->getHash();
-		}
-		if (!isset($hash)) {
-			if (!is_string($resource) || strlen($resource) !== 40) {
-				throw new \InvalidArgumentException('Specified an invalid resource to getPublishedPersistentResourceUri()', 1362501006);
-			}
-			$hash = $resource;
-		}
+	public function getPublicPersistentResourceUri(Resource $resource) {
 		if ($this->cdn !== array()) {
-			return $this->cdn['http'] . $hash;
+			return $this->cloudFilesService->getPublicUri($this->containerName, $this->getRelativePublicationPathAndFilename($resource));
 		} else {
-			return $this->cloudFilesService->getTemporaryUri($this->containerName, $hash);
+			return $this->cloudFilesService->getTemporaryUri($this->containerName, $this->getRelativePublicationPathAndFilename($resource));
 		}
 	}
 
 	/**
-	 * Publishes the specified source directory to this target, with the given
-	 * relative path.
+	 * Publishes the specified source file to this target, with the given relative path.
 	 *
-	 * @param string $sourcePath Path of the source directory
-	 * @param string $relativeTargetPath relative path in the target directory
-	 * @return boolean TRUE if publishing succeeded
+	 * @param string $sourceDataUri
+	 * @param string $relativeTargetPathAndFilename relative path and filename in the target directory
+	 * @param boolean $overwriteIfExists If TRUE, this method will overwrite the existing file if modification dates are not equal
+	 * @return void
+	 * @throws Exception
 	 */
-	protected function publishDirectory($sourcePath, $relativeTargetPath) {
-		$normalizedSourcePath = rtrim(Files::getUnixStylePath($this->realpath($sourcePath)), '/');
-		$targetPath = rtrim(Files::concatenatePaths(array($this->path, $relativeTargetPath)), '/');
-
-		if ($this->mirrorMode === 'link') {
-			if (Files::is_link($targetPath) && (rtrim(Files::getUnixStylePath($this->realpath($targetPath)), '/') === $normalizedSourcePath)) {
-				return TRUE;
-			} elseif (is_dir($targetPath)) {
-				Files::removeDirectoryRecursively($targetPath);
-			} elseif (is_link($targetPath)) {
-				unlink($targetPath);
-			} else {
-				Files::createDirectoryRecursively(dirname($targetPath));
-			}
-			symlink($sourcePath, $targetPath);
-		} else {
-			Files::copyDirectoryRecursively($sourcePath, $targetPath, TRUE);
-			return TRUE;
-		}
+	protected function publishFile($sourceDataUri, $relativeTargetPathAndFilename, $overwriteIfExists = FALSE) {
+		$this->cloudFilesService->createObject($this->containerName, $relativeTargetPathAndFilename, fopen($sourceDataUri, 'r'));
 	}
 
 	/**
-	 * Wrapper around realpath(). Needed for testing, as realpath() cannot be mocked
-	 * by vfsStream.
+	 * Determines and returns the relative path and filename for the given Storage Object or Resource. If the given
+	 * object represents a persistent resource, its own relative publication path will be empty. If the given object
+	 * represents a static resources, it will contain a relative path.
 	 *
-	 * @param string $path
-	 * @return string
+	 * @param ResourceMetaDataInterface $object Resource or Storage Object
+	 * @return string The relative path and filename, for example "c828d0f88ce197be1aff7cc2e5e86b1244241ac6/MyPicture.jpg"
 	 */
-	protected function realpath($path) {
-		return realpath($path);
+	protected function getRelativePublicationPathAndFilename(ResourceMetaDataInterface $object) {
+		if ($object->getRelativePublicationPath() !== '') {
+			$pathAndFilename = $object->getRelativePublicationPath() . $object->getFilename();
+		} else {
+			$pathAndFilename = $object->getSha1() . '/' . $object->getFilename();
+		}
+		return $pathAndFilename;
 	}
 
 }

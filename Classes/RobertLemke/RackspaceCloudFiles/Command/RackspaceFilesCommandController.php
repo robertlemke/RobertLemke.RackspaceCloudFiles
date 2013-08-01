@@ -158,6 +158,27 @@ class RackspaceFilesCommandController extends CommandController {
 	}
 
 	/**
+	 * Copy an object
+	 *
+	 * This command copies an object which already exists in the source container to the given target container.
+	 *
+	 * @param string $sourceContainer Name of the container the original object is contained in
+	 * @param string $sourceObject Name of the object (file) to copy
+	 * @param string $targetContainer Name of the container the object should be copied to
+	 * @param string $targetObject Name of the newly created target object
+	 * @return void
+	 */
+	public function copyCommand($sourceContainer, $sourceObject, $targetContainer, $targetObject) {
+		try {
+			$this->cloudFilesService->copyObject($sourceContainer, $sourceObject, $targetContainer, $targetObject);
+		} catch(Exception $e) {
+			$this->outputLine($e->getMessage());
+			$this->quit(1);
+		}
+		$this->outputLine('Successfully copied %s from container %s as %s to container %s.', array($sourceObject, $sourceContainer, $targetObject, $targetContainer));
+	}
+
+	/**
 	 * Generate a temporary download link
 	 *
 	 * This command generates a temporary URI which expires after the optionally
