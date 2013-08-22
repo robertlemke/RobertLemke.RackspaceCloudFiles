@@ -62,6 +62,11 @@ class RackspaceTarget implements TargetInterface {
 	protected $resourceManager;
 
 	/**
+	 * @var array
+	 */
+	protected $existingObjectsInfo;
+
+	/**
 	 * Constructor
 	 *
 	 * @param string $name Name of this target instance, according to the resource settings
@@ -107,9 +112,13 @@ class RackspaceTarget implements TargetInterface {
 	 * @param \TYPO3\Flow\Resource\Collection $collection The collection to publish
 	 * @return void
 	 * @throws Exception
-	 * TODO: Dont upload file again if it already exists
 	 */
 	public function publishCollection(Collection $collection) {
+		if (!isset($this->existingObjectsInfo)) {
+			$this->existingObjectsInfo = $this->cloudFilesService->listObjects($this->containerName, 'json');
+		}
+		$obsoleteObjects = array_fill_keys(array_keys($this->existingObjectsInfo), TRUE);
+
 		$storage = $collection->getStorage();
 		if ($storage instanceof RackspaceStorage) {
 			$storageContainerName = $storage->getContainerName();
@@ -119,12 +128,18 @@ class RackspaceTarget implements TargetInterface {
 			foreach ($collection->getObjects() as $object) {
 				/** @var \TYPO3\Flow\Resource\Storage\Object $object */
 				$this->cloudFilesService->copyObject($storageContainerName, $object->getSha1(), $this->containerName, $this->getRelativePublicationPathAndFilename($object));
+				unset($obsoleteObjects[$this->getRelativePublicationPathAndFilename($object)]);
 			}
 		} else {
 			foreach ($collection->getObjects() as $object) {
 				/** @var \TYPO3\Flow\Resource\Storage\Object $object */
-				$this->publishFile($object->getDataUri(), $this->getRelativePublicationPathAndFilename($object));
+				$this->publishFile($object->getDataUri(), $object->getRelativePublicationPath() . $object->getFilename(), $object);
+				unset($obsoleteObjects[$object->getRelativePublicationPath() . $object->getFilename()]);
 			}
+		}
+
+		foreach (array_keys($obsoleteObjects) as $relativePathAndFilename) {
+			$this->cloudFilesService->deleteObject($this->containerName, $relativePathAndFilename);
 		}
 	}
 
@@ -145,7 +160,6 @@ class RackspaceTarget implements TargetInterface {
 	 * @param CollectionInterface $collection The collection the given resource belongs to
 	 * @return void
 	 * @throws Exception
-	 * TODO: Dont upload file again if it already exists
 	 */
 	public function publishResource(Resource $resource, CollectionInterface $collection) {
 		$storage = $collection->getStorage();
@@ -159,7 +173,7 @@ class RackspaceTarget implements TargetInterface {
 			if ($sourcePathAndFilename === FALSE) {
 				throw new Exception(sprintf('Could not publish resource with SHA1 hash %s of collection %s because there seems to be no corresponding data in the storage.', $resource->getSha1(), $collection->getName()), 1375342304);
 			}
-			$this->publishFile($sourcePathAndFilename, $this->getRelativePublicationPathAndFilename($resource));
+			$this->publishFile($sourcePathAndFilename, $this->getRelativePublicationPathAndFilename($resource), $resource);
 		}
 	}
 
@@ -196,12 +210,16 @@ class RackspaceTarget implements TargetInterface {
 	 *
 	 * @param string $sourceDataUri
 	 * @param string $relativeTargetPathAndFilename relative path and filename in the target directory
-	 * @param boolean $overwriteIfExists If TRUE, this method will overwrite the existing file if modification dates are not equal
+	 * @param ResourceMetaDataInterface $resourceMetaData
 	 * @return void
-	 * @throws Exception
 	 */
-	protected function publishFile($sourceDataUri, $relativeTargetPathAndFilename, $overwriteIfExists = FALSE) {
-		$this->cloudFilesService->createObject($this->containerName, $relativeTargetPathAndFilename, fopen($sourceDataUri, 'r'));
+	protected function publishFile($sourceDataUri, $relativeTargetPathAndFilename, ResourceMetaDataInterface $resourceMetaData) {
+		if (!isset($this->existingObjectsInfo)) {
+			$this->existingObjectsInfo = $this->cloudFilesService->listObjects($this->containerName, 'json');
+		}
+		if (!isset($this->existingObjectsInfo[$relativeTargetPathAndFilename]) || $this->existingObjectsInfo[$relativeTargetPathAndFilename]['hash'] !== $resourceMetaData->getMd5()) {
+			$this->cloudFilesService->createObject($this->containerName, $relativeTargetPathAndFilename, fopen($sourceDataUri, 'r'));
+		}
 	}
 
 	/**

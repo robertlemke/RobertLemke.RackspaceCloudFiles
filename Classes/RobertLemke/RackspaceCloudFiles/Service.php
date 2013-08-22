@@ -307,6 +307,71 @@ class Service {
 	}
 
 	/**
+	 * Returns a list of objects of the given container.
+	 *
+	 * @param string $containerName Name of the container
+	 * @param string $format Either NULL (means "filename"), "xml", or "json"
+	 * @return array Either an array of filenames (default), or an array of JSON / XML data with more information
+	 * @api
+	 */
+	public function listObjects($containerName, $format = NULL) {
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
+		}
+
+		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . ($format !== NULL ? '?format=' . $format : '')));
+		$response = $this->sendRequest($request);
+
+		if ($response->getStatusCode() !== 200) {
+			$message = sprintf('Could not list objects of container "%s": %s', $containerName, $response->getStatus());
+			$this->systemLogger->log($message, LOG_ERR);
+			throw new Exception($message);
+		}
+
+		switch ($format) {
+			case 'json':
+				$objects = array();
+				foreach (json_decode($response->getContent(), TRUE) as $objectInfo) {
+					$objects[$objectInfo['name']] = $objectInfo;
+				}
+			break;
+			case 'xml':
+
+			default:
+				$objects = explode(chr(10), $response->getContent());
+		}
+
+		$this->systemLogger->log(sprintf('Retrieved list of objects in container "%s" (contains %s objects).', $containerName, count($objects)), LOG_DEBUG);
+		return $objects;
+	}
+
+	/**
+	 * Checks if a (content) object with the given name in the specified container exists.
+	 *
+	 * If an md5 hash is specified, this function only returns TRUE if the object exists and has the same md5 checksum.
+	 *
+	 * @param string $containerName Name of the container
+	 * @param string $objectName Name of the content object
+	 * @param string $md5Hash Optional md5 checksum of the expected content
+	 * @return boolean TRUE if the object exists, otherwise FALSE
+	 * @api
+	 */
+	public function objectExists($containerName, $objectName, $md5Hash = NULL) {
+		if ($this->authenticationToken === NULL) {
+			$this->authenticate();
+		}
+
+		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . $this->encodeObjectName($objectName)), 'HEAD');
+		$response = $this->sendRequest($request);
+
+		if ($response->getStatusCode() === 200) {
+			return ($md5Hash === NULL) ? TRUE : ($response->getHeader('Etag') === $md5Hash);
+		}
+
+		return FALSE;
+	}
+
+	/**
 	 * Creates a new (content) object in the specified container
 	 *
 	 * @param string $containerName Name of the container

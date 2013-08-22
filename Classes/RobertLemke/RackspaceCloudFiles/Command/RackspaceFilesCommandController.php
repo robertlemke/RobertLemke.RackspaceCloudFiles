@@ -179,6 +179,31 @@ class RackspaceFilesCommandController extends CommandController {
 	}
 
 	/**
+	 * Lists of objects of a container
+	 *
+	 * This command displays a list of all objects stored in the specified container.
+	 *
+	 * @param string $container Name of the container
+	 * @param boolean $verbose If additional metadata should be shown
+	 * @return void
+	 */
+	public function listObjectsCommand($container, $verbose = FALSE) {
+		try {
+			$objects = $this->cloudFilesService->listObjects($container, ($verbose ? 'json' : NULL));
+		} catch(Exception $e) {
+			$this->outputLine($e->getMessage());
+			$this->quit(1);
+		}
+		foreach ($objects as $name => $objectInfo) {
+			if ($verbose) {
+				$this->outputLine($name . ' ' . $objectInfo['hash'] . ' ' . $objectInfo['last_modified']);
+			} else {
+				$this->outputLine($objectInfo);
+			}
+		}
+	}
+
+	/**
 	 * Generate a temporary download link
 	 *
 	 * This command generates a temporary URI which expires after the optionally
