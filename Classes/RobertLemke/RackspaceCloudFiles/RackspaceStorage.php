@@ -117,14 +117,16 @@ class RackspaceStorage implements WritableStorageInterface {
 		}
 
 		$sha1Hash = sha1_file($temporaryTargetPathAndFilename);
+		$md5Hash = md5_file($temporaryTargetPathAndFilename);
 
 		$resource = new Resource();
 		$resource->setFilename($originalFilename);
 		$resource->setCollectionName($collectionName);
 		$resource->setSha1($sha1Hash);
+		$resource->setMd5($md5Hash);
 
 		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($originalFilename));
-		$this->cloudFilesService->createObject($this->containerName, $sha1Hash, fopen($temporaryTargetPathAndFilename, 'rb'), $headers);
+		$this->cloudFilesService->createObject($this->containerName, $sha1Hash, fopen($temporaryTargetPathAndFilename, 'rb'), $headers, $md5Hash);
 
 		return $resource;
 	}

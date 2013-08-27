@@ -378,13 +378,18 @@ class Service {
 	 * @param string $objectName Name of the content object
 	 * @param string|resource $content The actual content to store or a stream resource
 	 * @param array $additionalHeaders Additional headers to set, for example array('Content-Disposition' => 'attachment; filename=littlekitten.jpg', ...)
-	 * @return void
+	 * @param string $md5Hash An MD5 hash of the content. If none is specified and $content is a string, an MD5 hash will be calculated automatically
 	 * @throws Exception
+	 * @return void
 	 * @api
 	 */
-	public function createObject($containerName, $objectName, $content, $additionalHeaders = array()) {
+	public function createObject($containerName, $objectName, $content, $additionalHeaders = array(), $md5Hash = NULL) {
 		if ($this->authenticationToken === NULL) {
 			$this->authenticate();
+		}
+
+		if ($md5Hash === NULL && is_string($content)) {
+			$md5Hash = md5($content);
 		}
 
 		$request = Request::create(new Uri($this->storageUri . '/' . urlencode($containerName) . '/' . $this->encodeObjectName($objectName)), 'PUT');
@@ -392,14 +397,25 @@ class Service {
 		foreach ($additionalHeaders as $fieldName => $value) {
 			$request->setHeader($fieldName, $value);
 		}
+		if ($md5Hash !== NULL) {
+			$request->setHeader('Etag', $md5Hash);
+		}
 		$response = $this->sendRequest($request);
 
-		if ($response->getStatusCode() !== 201) {
-			$message = sprintf('Creating object "%s" in container "%s" failed: %s', $objectName, $containerName, $response->getStatus());
-			$this->systemLogger->log($message, LOG_ERR);
-			throw new Exception($message);
+		switch ($response->getStatusCode()) {
+			case 201:
+				$this->systemLogger->log(sprintf('Created object "%s" in container "%s" with MD5 hash "%s"', $objectName, $containerName, $md5Hash ?: 'unknown'), LOG_DEBUG);
+			break;
+			case 422:
+				$message = sprintf('Creating object "%s" in container "%s" failed: the data was corrupted during upload (MD5 hashes did not match)', $objectName, $containerName, $response->getStatus());
+				$this->systemLogger->log($message, LOG_ERR);
+				throw new Exception($message);
+			break;
+			default:
+				$message = sprintf('Creating object "%s" in container "%s" failed: %s', $objectName, $containerName, $response->getStatus());
+				$this->systemLogger->log($message, LOG_ERR);
+				throw new Exception($message);
 		}
-		$this->systemLogger->log(sprintf('Created object "%s" in container "%s"', $objectName, $containerName), LOG_DEBUG);
 	}
 
 	/**

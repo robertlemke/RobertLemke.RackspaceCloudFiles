@@ -63,11 +63,13 @@ class Container {
 	 *
 	 * @param string $name Name of the content object (will be urlencoded)
 	 * @param string $content The actual content to store
+	 * @param array $additionalHeaders Additional headers to set, for example array('Content-Disposition' => 'attachment; filename=littlekitten.jpg', ...)
+	 * @param string $md5Hash An MD5 hash of the content. If none is specified and $content is a string, an MD5 hash will be calculated automatically
 	 * @return void
 	 * @api
 	 */
-	public function createObject($name, $content) {
-		$this->service->createObject($this->name, $name, $content);
+	public function createObject($name, $content, $additionalHeaders = array(), $md5Hash = NULL) {
+		$this->service->createObject($this->name, $name, $content, $additionalHeaders, $md5Hash);
 	}
 
 	/**

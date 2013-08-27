@@ -132,7 +132,8 @@ class RackspaceFilesCommandController extends CommandController {
 			$this->quit(1);
 		}
 
-		$container->createObject($file, fopen('file://' . realpath($file), 'rb'));
+		$md5Hash = md5_file($file);
+		$container->createObject($file, fopen('file://' . realpath($file), 'rb'), array(), $md5Hash);
 		$this->outputLine('Sucessfully uploaded %s to %s.', array($file, $container->getName()));
 	}
 
