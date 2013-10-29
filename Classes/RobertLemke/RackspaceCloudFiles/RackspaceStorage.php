@@ -9,6 +9,7 @@ namespace RobertLemke\RackspaceCloudFiles;
 use TYPO3\Flow\Annotations as Flow;
 use TYPO3\Flow\Resource\Resource;
 use TYPO3\Flow\Resource\Storage\Exception as StorageException;
+use TYPO3\Flow\Resource\Storage\Exception;
 use TYPO3\Flow\Resource\Storage\Object;
 use TYPO3\Flow\Resource\Storage\WritableStorageInterface;
 use TYPO3\Flow\Utility\Files;
@@ -121,12 +122,47 @@ class RackspaceStorage implements WritableStorageInterface {
 
 		$resource = new Resource();
 		$resource->setFilename($originalFilename);
+		$resource->setFileSize(filesize($temporaryTargetPathAndFilename));
 		$resource->setCollectionName($collectionName);
 		$resource->setSha1($sha1Hash);
 		$resource->setMd5($md5Hash);
 
 		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($originalFilename));
 		$this->cloudFilesService->createObject($this->containerName, $sha1Hash, fopen($temporaryTargetPathAndFilename, 'rb'), $headers, $md5Hash);
+
+		return $resource;
+	}
+
+	/**
+	 * Imports a resource from the given string content into this storage.
+	 *
+	 * On a successful import this method returns a Resource object representing the newly
+	 * imported persistent resource.
+	 *
+	 * The specified filename will be used when presenting the resource to a user. Its file extension is
+	 * important because the resource management will derive the IANA Media Type from it.
+	 *
+	 * @param string $content The actual content to import
+	 * @return Resource A resource object representing the imported resource
+	 * @param string $collectionName Name of the collection the new Resource belongs to
+	 * @param string $filename The filename to use for the newly generated resource
+	 * @return Resource A resource object representing the imported resource
+	 * @throws Exception
+	 * @api
+	 */
+	public function importResourceFromContent($content, $collectionName, $filename) {
+		$sha1Hash = sha1($content);
+		$md5Hash = md5($content);
+
+		$resource = new Resource();
+		$resource->setFilename($filename);
+		$resource->setFileSize(strlen($content));
+		$resource->setCollectionName($collectionName);
+		$resource->setSha1($sha1Hash);
+		$resource->setMd5($md5Hash);
+
+		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($filename));
+		$this->cloudFilesService->createObject($this->containerName, $sha1Hash, $content, $headers, $md5Hash);
 
 		return $resource;
 	}
@@ -157,11 +193,14 @@ class RackspaceStorage implements WritableStorageInterface {
 			throw new Exception(sprintf('The uploaded file "%s" could not be moved to the temporary location "%s".', $sourcePathAndFilename, $newSourcePathAndFilename), 1375267045);
 		}
 		$sha1Hash = sha1_file($newSourcePathAndFilename);
+		$md5Hash = md5_file($newSourcePathAndFilename);
 
 		$resource = new Resource();
 		$resource->setFilename($originalFilename);
 		$resource->setCollectionName($collectionName);
+		$resource->setFileSize(filesize($newSourcePathAndFilename));
 		$resource->setSha1($sha1Hash);
+		$resource->setMd5($md5Hash);
 
 		$headers = array('Content-Disposition' => 'attachment; filename=' . urlencode($originalFilename));
 		$this->cloudFilesService->createObject($this->containerName, $sha1Hash, fopen($newSourcePathAndFilename, 'rb'), $headers);
