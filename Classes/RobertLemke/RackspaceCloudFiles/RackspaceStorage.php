@@ -12,7 +12,6 @@ use TYPO3\Flow\Resource\Storage\Exception as StorageException;
 use TYPO3\Flow\Resource\Storage\Exception;
 use TYPO3\Flow\Resource\Storage\Object;
 use TYPO3\Flow\Resource\Storage\WritableStorageInterface;
-use TYPO3\Flow\Utility\Files;
 
 /**
  * A resource storage based on Rackspace Cloudfiles
@@ -44,6 +43,12 @@ class RackspaceStorage implements WritableStorageInterface {
 	 * @var \TYPO3\Flow\Utility\Environment
 	 */
 	protected $environment;
+
+	/**
+	 * @Flow\Inject
+	 * @var \TYPO3\Flow\Resource\ResourceManager
+	 */
+	protected $resourceManager;
 
 	/**
 	 * @Flow\Inject
@@ -220,25 +225,41 @@ class RackspaceStorage implements WritableStorageInterface {
 	}
 
 	/**
-	 * Returns a URI which can be used internally to open / copy the given resource
+	 * Returns a stream handle which can be used internally to open / copy the given resource
 	 * stored in this storage.
 	 *
 	 * @param \TYPO3\Flow\Resource\Resource $resource The resource stored in this storage
-	 * @return string A temporary URI leading to the resource file
+	 * @return resource | boolean A URI (for example the full path and filename) leading to the resource file or FALSE if it does not exist
+	 * @api
 	 */
-	public function getPrivateUriByResource(Resource $resource) {
-		return $this->cloudFilesService->getTemporaryUri($this->containerName, $resource->getSha1());
+	public function getStreamByResource(Resource $resource) {
+		return fopen($this->cloudFilesService->getTemporaryUri($this->containerName, $resource->getSha1()), 'r');
 	}
 
 	/**
-	 * Returns a URI which can be used internally to open / copy the given resource
+	 * Returns a stream handle which can be used internally to open / copy the given resource
 	 * stored in this storage.
 	 *
-	 * @param string $relativePath A path relative to the storage root.
-	 * @return string A temporary URI leading to the resource file
+	 * @param string $relativePath A path relative to the storage root, for example "MyFirstDirectory/SecondDirectory/Foo.css"
+	 * @return resource | boolean A URI (for example the full path and filename) leading to the resource file or FALSE if it does not exist
+	 * @api
 	 */
-	public function getPrivateUriByResourcePath($relativePath) {
-		return $this->cloudFilesService->getTemporaryUri($this->containerName, ltrim('/', $relativePath));
+	public function getStreamByResourcePath($relativePath) {
+		return fopen($this->cloudFilesService->getTemporaryUri($this->containerName, ltrim('/', $relativePath)), 'r');
+	}
+
+	/**
+	 * Retrieve all Objects stored in this storage.
+	 *
+	 * @return array<\TYPO3\Flow\Resource\Storage\Object>
+	 * @api
+	 */
+	public function getObjects() {
+		$objects = array();
+		foreach ($this->resourceManager->getCollectionsByStorage($this) as $collectionName => $collection) {
+			$objects = array_merge($objects, $this->getObjectsByCollectionName($collectionName));
+		}
+		return $objects;
 	}
 
 	/**
