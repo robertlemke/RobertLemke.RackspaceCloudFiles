@@ -11,12 +11,13 @@ use TYPO3\Flow\Resource\Collection;
 use TYPO3\Flow\Resource\CollectionInterface;
 use TYPO3\Flow\Resource\Exception;
 use TYPO3\Flow\Resource\Resource;
+use TYPO3\Flow\Resource\ResourceManager;
 use TYPO3\Flow\Resource\ResourceMetaDataInterface;
+use TYPO3\Flow\Resource\Storage\Object;
 use TYPO3\Flow\Resource\Target\TargetInterface;
-use TYPO3\Flow\Utility\Files;
 
 /**
- * A resource publishing target based on Rackspace Cloudfiles
+ * A resource publishing target based on Rackspace CloudFiles
  */
 class RackspaceTarget implements TargetInterface {
 
@@ -36,11 +37,18 @@ class RackspaceTarget implements TargetInterface {
 	protected $cdn = array();
 
 	/**
-	 * Name of the Cloudfiles container which should be used for publication
+	 * Name of the CloudFiles container which should be used for publication
 	 *
 	 * @var string
 	 */
 	protected $containerName;
+
+	/**
+	 * CORS (Cross-Origin Resource Sharing) allowed origins for published content
+	 *
+	 * @var string
+	 */
+	protected $corsAllowOrigin = '*';
 
 	/**
 	 * Internal cache for known storages, indexed by storage name
@@ -51,13 +59,13 @@ class RackspaceTarget implements TargetInterface {
 
 	/**
 	 * @Flow\Inject
-	 * @var \RobertLemke\RackspaceCloudFiles\Service
+	 * @var Service
 	 */
 	protected $cloudFilesService;
 
 	/**
 	 * @Flow\Inject
-	 * @var \TYPO3\Flow\Resource\ResourceManager
+	 * @var ResourceManager
 	 */
 	protected $resourceManager;
 
@@ -71,6 +79,7 @@ class RackspaceTarget implements TargetInterface {
 	 *
 	 * @param string $name Name of this target instance, according to the resource settings
 	 * @param array $options Options for this target
+	 * @throws Exception
 	 */
 	public function __construct($name, array $options = array()) {
 		$this->name = $name;
@@ -78,6 +87,9 @@ class RackspaceTarget implements TargetInterface {
 			switch ($key) {
 				case 'container':
 					$this->containerName = $value;
+				break;
+				case 'corsAllowOrigin':
+					$this->corsAllowOrigin = $value;
 				break;
 				case 'cdn':
 					if (!is_array($value)) {
@@ -133,8 +145,8 @@ class RackspaceTarget implements TargetInterface {
 		} else {
 			foreach ($collection->getObjects() as $object) {
 				/** @var \TYPO3\Flow\Resource\Storage\Object $object */
-				$this->publishFile($object->getDataUri(), $object->getRelativePublicationPath() . $object->getFilename(), $object);
-				unset($obsoleteObjects[$object->getRelativePublicationPath() . $object->getFilename()]);
+				$this->publishFile($object->getStream(), $this->getRelativePublicationPathAndFilename($object), $object);
+				unset($obsoleteObjects[$this->getRelativePublicationPathAndFilename($object)]);
 			}
 		}
 
@@ -169,11 +181,11 @@ class RackspaceTarget implements TargetInterface {
 			}
 			$this->cloudFilesService->copyObject($storage->getContainerName(), $resource->getSha1(), $this->containerName, $this->getRelativePublicationPathAndFilename($resource));
 		} else {
-			$sourcePathAndFilename = $storage->getPrivateUriByResource($resource);
-			if ($sourcePathAndFilename === FALSE) {
+			$sourceStream = $collection->getStreamByResource($resource);
+			if ($sourceStream === FALSE) {
 				throw new Exception(sprintf('Could not publish resource with SHA1 hash %s of collection %s because there seems to be no corresponding data in the storage.', $resource->getSha1(), $collection->getName()), 1375342304);
 			}
-			$this->publishFile($sourcePathAndFilename, $this->getRelativePublicationPathAndFilename($resource), $resource);
+			$this->publishFile($sourceStream, $this->getRelativePublicationPathAndFilename($resource), $resource);
 		}
 	}
 
@@ -208,17 +220,20 @@ class RackspaceTarget implements TargetInterface {
 	/**
 	 * Publishes the specified source file to this target, with the given relative path.
 	 *
-	 * @param string $sourceDataUri
-	 * @param string $relativeTargetPathAndFilename relative path and filename in the target directory
-	 * @param ResourceMetaDataInterface $resourceMetaData
+	 * @param resource $sourceStream
+	 * @param string $relativeTargetPathAndFilename
+	 * @param ResourceMetaDataInterface $metaData
+	 * @throws Exception
 	 * @return void
 	 */
-	protected function publishFile($sourceDataUri, $relativeTargetPathAndFilename, ResourceMetaDataInterface $resourceMetaData) {
+	protected function publishFile($sourceStream, $relativeTargetPathAndFilename, ResourceMetaDataInterface $metaData) {
 		if (!isset($this->existingObjectsInfo)) {
 			$this->existingObjectsInfo = $this->cloudFilesService->listObjects($this->containerName, 'json');
 		}
-		if (!isset($this->existingObjectsInfo[$relativeTargetPathAndFilename]) || $this->existingObjectsInfo[$relativeTargetPathAndFilename]['hash'] !== $resourceMetaData->getMd5()) {
-			$this->cloudFilesService->createObject($this->containerName, $relativeTargetPathAndFilename, fopen($sourceDataUri, 'r'));
+
+		if (!isset($this->existingObjectsInfo[$relativeTargetPathAndFilename]) || $this->existingObjectsInfo[$relativeTargetPathAndFilename]['hash'] !== $metaData->getMd5()) {
+			$additionalHeaders = array('Access-Control-Allow-Origin' => $this->corsAllowOrigin);
+			$this->cloudFilesService->createObject($this->containerName, $relativeTargetPathAndFilename, $sourceStream, $additionalHeaders, $metaData->getMd5());
 		}
 	}
 

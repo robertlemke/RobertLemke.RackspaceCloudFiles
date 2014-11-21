@@ -175,6 +175,7 @@ class Service {
 	 * Returns an array of container objects
 	 *
 	 * @return array<\RobertLemke\RackspaceCloudFiles\Container>
+	 * @throws Exception
 	 * @api
 	 */
 	public function getContainers() {
@@ -206,6 +207,7 @@ class Service {
 	 *
 	 * @param string $name Name of the container
 	 * @return \RobertLemke\RackspaceCloudFiles\Container
+	 * @throws Exception
 	 * @api
 	 */
 	public function getContainer($name) {
@@ -238,6 +240,7 @@ class Service {
 	 * @param string $containerName Name of the container to make public
 	 * @param boolean $state On or off (TRUE or FALSE)
 	 * @param integer $ttl Time to live (seconds) for CDN stored assets – minimum: 900
+	 * @throws Exception
 	 * @return void
 	 * @api
 	 */

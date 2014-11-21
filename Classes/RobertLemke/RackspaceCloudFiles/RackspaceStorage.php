@@ -7,14 +7,18 @@ namespace RobertLemke\RackspaceCloudFiles;
  *                                                                        */
 
 use TYPO3\Flow\Annotations as Flow;
+use TYPO3\Flow\Resource\CollectionInterface;
 use TYPO3\Flow\Resource\Resource;
+use TYPO3\Flow\Resource\ResourceManager;
+use TYPO3\Flow\Resource\ResourceRepository;
 use TYPO3\Flow\Resource\Storage\Exception as StorageException;
 use TYPO3\Flow\Resource\Storage\Exception;
 use TYPO3\Flow\Resource\Storage\Object;
 use TYPO3\Flow\Resource\Storage\WritableStorageInterface;
+use TYPO3\Flow\Utility\Environment;
 
 /**
- * A resource storage based on Rackspace Cloudfiles
+ * A resource storage based on Rackspace CloudFiles
  */
 class RackspaceStorage implements WritableStorageInterface {
 
@@ -26,7 +30,7 @@ class RackspaceStorage implements WritableStorageInterface {
 	protected $name;
 
 	/**
-	 * Name of the Cloudfiles container which should be used as a storage
+	 * Name of the CloudFiles container which should be used as a storage
 	 *
 	 * @var string
 	 */
@@ -34,25 +38,25 @@ class RackspaceStorage implements WritableStorageInterface {
 
 	/**
 	 * @Flow\Inject
-	 * @var \RobertLemke\RackspaceCloudFiles\Service
+	 * @var Service
 	 */
 	protected $cloudFilesService;
 
 	/**
 	 * @Flow\Inject
-	 * @var \TYPO3\Flow\Utility\Environment
+	 * @var Environment
 	 */
 	protected $environment;
 
 	/**
 	 * @Flow\Inject
-	 * @var \TYPO3\Flow\Resource\ResourceManager
+	 * @var ResourceManager
 	 */
 	protected $resourceManager;
 
 	/**
 	 * @Flow\Inject
-	 * @var \TYPO3\Flow\Resource\ResourceRepository
+	 * @var ResourceRepository
 	 */
 	protected $resourceRepository;
 
@@ -107,7 +111,7 @@ class RackspaceStorage implements WritableStorageInterface {
 	 * @param string $collectionName Name of the collection the new Resource belongs to
 	 * @return Resource A resource object representing the imported resource
 	 * @throws \TYPO3\Flow\Resource\Storage\Exception
-	 * TODO: Dont upload file again if it already exists
+	 * TODO: Don't upload file again if it already exists
 	 */
 	public function importResource($source, $collectionName) {
 		if (is_resource($source)) {
@@ -183,6 +187,7 @@ class RackspaceStorage implements WritableStorageInterface {
 	 * @param string $collectionName Name of the collection this uploaded resource should be part of
 	 * @return string A resource object representing the imported resource
 	 * @throws Exception
+	 * @api
 	 */
 	public function importUploadedResource(array $uploadInfo, $collectionName) {
 		$pathInfo = pathinfo($uploadInfo['name']);
@@ -218,6 +223,7 @@ class RackspaceStorage implements WritableStorageInterface {
 	 *
 	 * @param \TYPO3\Flow\Resource\Resource $resource The Resource to delete the storage data of
 	 * @return boolean TRUE if removal was successful
+	 * @api
 	 */
 	public function deleteResource(Resource $resource) {
 		$this->cloudFilesService->deleteObject($this->containerName, $resource->getSha1());
@@ -256,8 +262,8 @@ class RackspaceStorage implements WritableStorageInterface {
 	 */
 	public function getObjects() {
 		$objects = array();
-		foreach ($this->resourceManager->getCollectionsByStorage($this) as $collectionName => $collection) {
-			$objects = array_merge($objects, $this->getObjectsByCollectionName($collectionName));
+		foreach ($this->resourceManager->getCollectionsByStorage($this) as $collection) {
+			$objects = array_merge($objects, $this->getObjectsByCollection($collection));
 		}
 		return $objects;
 	}
@@ -265,20 +271,25 @@ class RackspaceStorage implements WritableStorageInterface {
 	/**
 	 * Retrieve all Objects stored in this storage, filtered by the given collection name
 	 *
-	 * @param string $collectionName
+	 * @param CollectionInterface $collection
+	 * @internal param string $collectionName
 	 * @return array<\TYPO3\Flow\Resource\Storage\Object>
 	 * @api
 	 */
-	public function getObjectsByCollectionName($collectionName) {
+	public function getObjectsByCollection(CollectionInterface $collection) {
 		$objects = array();
-		foreach ($this->resourceRepository->findByCollectionName($collectionName) as $resource) {
+		$that = $this;
+		$containerName = $this->containerName;
+
+		foreach ($this->resourceRepository->findByCollectionName($collection->getName()) as $resource) {
 			/** @var \TYPO3\Flow\Resource\Resource $resource */
 			$object = new Object();
 			$object->setFilename($resource->getFilename());
 			$object->setSha1($resource->getSha1());
-			$object->setDataUri($this->cloudFilesService->getTemporaryUri($this->containerName, $resource->getSha1()));
+			$object->setStream(function () use ($that, $containerName, $resource) { return $that->cloudFilesService->getTemporaryUri($containerName, $resource->getSha1()); } );
 			$objects[] = $object;
 		}
+
 		return $objects;
 	}
 
