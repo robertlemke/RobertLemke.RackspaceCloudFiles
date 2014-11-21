@@ -234,6 +234,7 @@ class RackspaceTarget implements TargetInterface {
 		if (!isset($this->existingObjectsInfo[$relativeTargetPathAndFilename]) || $this->existingObjectsInfo[$relativeTargetPathAndFilename]['hash'] !== $metaData->getMd5()) {
 			$additionalHeaders = array('Access-Control-Allow-Origin' => $this->corsAllowOrigin);
 			$this->cloudFilesService->createObject($this->containerName, $relativeTargetPathAndFilename, $sourceStream, $additionalHeaders, $metaData->getMd5());
+			fclose($sourceStream);
 		}
 	}
 
