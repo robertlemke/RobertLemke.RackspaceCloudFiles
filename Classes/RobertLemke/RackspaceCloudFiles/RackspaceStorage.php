@@ -154,14 +154,15 @@ class RackspaceStorage implements WritableStorageInterface {
 	 * @param string $content The actual content to import
 	 * @return Resource A resource object representing the imported resource
 	 * @param string $collectionName Name of the collection the new Resource belongs to
-	 * @param string $filename The filename to use for the newly generated resource
 	 * @return Resource A resource object representing the imported resource
 	 * @throws Exception
 	 * @api
 	 */
-	public function importResourceFromContent($content, $collectionName, $filename) {
+	public function importResourceFromContent($content, $collectionName) {
 		$sha1Hash = sha1($content);
 		$md5Hash = md5($content);
+
+		$filename = $sha1Hash; // FIXME
 
 		$resource = new Resource();
 		$resource->setFilename($filename);
